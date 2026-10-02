@@ -1,0 +1,3 @@
+build/
+*.log
+!sample_logs/small.log
