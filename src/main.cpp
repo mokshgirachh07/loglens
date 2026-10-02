@@ -2,6 +2,8 @@
 #include <iostream>
 #include <string>
 
+#include "loglens/Parser.h"
+
 int main(int argc, char* argv[]) {
     if (argc < 2) {
         std::cerr << "Usage: " << argv[0] << " <logfile>\n";
@@ -16,17 +18,26 @@ int main(int argc, char* argv[]) {
     }
 
     std::string line;
-    std::size_t total = 0;
+    std::size_t total = 0, parsed = 0, malformed = 0;
 
-    std::cout << "--- First 5 lines ---\n";
+    std::cout << "--- First 3 parsed entries ---\n";
     while (std::getline(file, line)) {
-        if (total < 5) {
-            std::cout << line << '\n';
-        }
         ++total;
+        auto entry = loglens::parseLine(line);
+        if (!entry) {
+            ++malformed;
+            continue;
+        }
+        if (parsed < 3) {
+            std::cout << entry->ip << " | " << entry->method << " " << entry->url
+                      << " | " << entry->status << " | " << entry->bytes << " bytes\n";
+        }
+        ++parsed;
     }
 
-    std::cout << "---------------------\n";
-    std::cout << "Total lines: " << total << '\n';
+    std::cout << "------------------------------\n";
+    std::cout << "Total lines : " << total << '\n';
+    std::cout << "Parsed      : " << parsed << '\n';
+    std::cout << "Malformed   : " << malformed << '\n';
     return 0;
 }
