@@ -13,6 +13,7 @@ add_library(loglens_core
   src/Reader.cpp
   src/Analyzer.cpp 
   src/Timestamp.cpp
+  src/AnomalyDetector.cpp
 )
 target_include_directories(loglens_core PUBLIC include)
 target_compile_options(loglens_core PRIVATE -Wall -Wextra)

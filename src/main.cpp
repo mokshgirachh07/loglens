@@ -8,6 +8,7 @@
 
 #include "loglens/Analyzer.h"
 #include "loglens/Reader.h"
+#include "loglens/AnomalyDetector.h"
 
 namespace {
 
@@ -67,6 +68,42 @@ void printHourly(const std::array<std::size_t, 24>& hourly) {
     }
     std::cout << '\n';
 }
+std::string formatEpoch(std::int64_t epoch, int offsetSeconds) {
+    std::int64_t t = epoch + offsetSeconds;
+    std::int64_t days = t / 86400;
+    std::int64_t secs = t % 86400;
+    if (secs < 0) { secs += 86400; --days; }
+
+    days += 719468;
+    const std::int64_t era = (days >= 0 ? days : days - 146096) / 146097;
+    const unsigned doe = static_cast<unsigned>(days - era * 146097);
+    const unsigned yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
+    const std::int64_t y = static_cast<std::int64_t>(yoe) + era * 400;
+    const unsigned doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    const unsigned mp = (5 * doy + 2) / 153;
+    const unsigned d = doy - (153 * mp + 2) / 5 + 1;
+    const unsigned m = mp < 10 ? mp + 3 : mp - 9;
+
+    std::ostringstream out;
+    out << (y + (m <= 2)) << '-' << std::setfill('0') << std::setw(2) << m << '-'
+        << std::setw(2) << d << ' ' << std::setw(2) << secs / 3600 << ':'
+        << std::setw(2) << (secs % 3600) / 60 << ':' << std::setw(2) << secs % 60;
+    return out.str();
+}
+
+void printAlerts(const std::vector<loglens::Alert>& alerts, std::size_t threshold) {
+    std::cout << "Anomaly detection (more than " << threshold << " requests in 60s)\n";
+    if (alerts.empty()) {
+        std::cout << "  none found\n\n";
+        return;
+    }
+    for (const auto& a : alerts) {
+        std::cout << "  ! " << a.ip << "  peak " << a.peakRequests
+                  << " requests/60s, first flagged at "
+                  << formatEpoch(a.firstEpoch, 5 * 3600 + 30 * 60) << " (+0530)\n";
+    }
+    std::cout << '\n';
+}
 
 }  // namespace
 
@@ -76,9 +113,13 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
+    const std::size_t threshold = 100;
     loglens::Analyzer analyzer;
-    const auto result = loglens::readLog(
-        argv[1], [&](const loglens::LogEntry& e) { analyzer.add(e); });
+    loglens::AnomalyDetector detector(threshold, 60);
+    const auto result = loglens::readLog(argv[1], [&](const loglens::LogEntry& e) {
+        analyzer.add(e);
+        detector.add(e);
+    });
 
     if (!result.opened) {
         std::cerr << "Error: could not open '" << argv[1] << "'\n";
@@ -110,6 +151,7 @@ int main(int argc, char* argv[]) {
     printTop("Top 10 IPs", "IP", analyzer.topIps(10), result.parsed);
     printTop("Top 10 URLs", "URL", analyzer.topUrls(10), result.parsed);
     printHourly(analyzer.hourly());
+    printAlerts(detector.alerts(), threshold);
 
     std::cout << "Unique IPs  : " << analyzer.ipCounts().size() << '\n';
     return 0;
