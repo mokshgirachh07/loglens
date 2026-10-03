@@ -1,5 +1,5 @@
 #include "loglens/Parser.h"
-
+#include "loglens/Timestamp.h"
 #include <regex>
 
 namespace loglens {
@@ -15,9 +15,16 @@ std::optional<LogEntry> parseLine(const std::string& line) {
         return std::nullopt;
     }
 
+    const auto time = parseTimestamp(m[2].str());
+    if (!time) {
+        return std::nullopt;  // bad timestamp = malformed line
+    }
+
     LogEntry entry;
     entry.ip        = m[1].str();
     entry.timestamp = m[2].str();
+    entry.epoch     = time->epoch;
+    entry.hour      = time->hour;
     entry.method    = m[3].str();
     entry.url       = m[4].str();
     entry.status    = std::stoi(m[5].str());

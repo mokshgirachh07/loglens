@@ -28,6 +28,7 @@ void Analyzer::add(const LogEntry& entry) {
     ++ipCounts_[entry.ip];
     ++urlCounts_[entry.url];
     totalBytes_ += entry.bytes;
+    ++hourly_[static_cast<std::size_t>(entry.hour)];
 }
 
 RankedList Analyzer::topIps(std::size_t n) const { return topN(ipCounts_, n); }

@@ -1,4 +1,5 @@
 #include <algorithm>
+#include <array>
 #include <iomanip>
 #include <iostream>
 #include <map>
@@ -50,6 +51,23 @@ void printTop(const std::string& title, const std::string& keyHeader,
     std::cout << '\n';
 }
 
+void printHourly(const std::array<std::size_t, 24>& hourly) {
+    const std::size_t peak = *std::max_element(hourly.begin(), hourly.end());
+    if (peak == 0) return;
+
+    const std::size_t maxBar = 40;
+    std::cout << "Traffic by hour\n";
+    for (std::size_t h = 0; h < hourly.size(); ++h) {
+        std::size_t len = hourly[h] * maxBar / peak;
+        if (hourly[h] > 0 && len == 0) len = 1;  // never hide non-empty hours
+
+        std::cout << "  " << std::setfill('0') << std::right << std::setw(2) << h
+                  << std::setfill(' ') << ":00 | " << std::string(len, '#')
+                  << ' ' << hourly[h] << '\n';
+    }
+    std::cout << '\n';
+}
+
 }  // namespace
 
 int main(int argc, char* argv[]) {
@@ -91,6 +109,7 @@ int main(int argc, char* argv[]) {
 
     printTop("Top 10 IPs", "IP", analyzer.topIps(10), result.parsed);
     printTop("Top 10 URLs", "URL", analyzer.topUrls(10), result.parsed);
+    printHourly(analyzer.hourly());
 
     std::cout << "Unique IPs  : " << analyzer.ipCounts().size() << '\n';
     return 0;
