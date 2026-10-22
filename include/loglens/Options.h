@@ -16,6 +16,8 @@ struct Options {
     std::optional<std::int64_t> fromEpoch;  // --from 2026-09-30 (00:00:00, log timezone)
     std::optional<std::int64_t> toEpoch;    // --to 2026-09-30 (end of that day)
     bool help = false;
+    std::string outPath;   // --out report.txt
+    std::string csvPath;   // --csv report.csv
 };
 
 // Parses argv. On error returns false and fills `error`.

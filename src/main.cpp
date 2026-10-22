@@ -1,112 +1,15 @@
-#include <algorithm>
-#include <array>
-#include <iomanip>
+#include <fstream>
 #include <iostream>
-#include <map>
-#include <sstream>
 #include <string>
-#include <vector>
 
 #include "loglens/Analyzer.h"
 #include "loglens/AnomalyDetector.h"
 #include "loglens/Options.h"
 #include "loglens/Reader.h"
+#include "loglens/Report.h"
 
 namespace {
 
-std::string formatBytes(std::size_t bytes) {
-    const char* units[] = {"B", "KB", "MB", "GB", "TB"};
-    double value = static_cast<double>(bytes);
-    int unit = 0;
-    while (value >= 1024.0 && unit < 4) {
-        value /= 1024.0;
-        ++unit;
-    }
-    std::ostringstream out;
-    out << std::fixed << std::setprecision(unit == 0 ? 0 : 2) << value << ' ' << units[unit];
-    return out.str();
-}
-
-void printTop(const std::string& title, const std::string& keyHeader,
-              const loglens::RankedList& rows, std::size_t total) {
-    std::size_t keyWidth = keyHeader.size();
-    for (const auto& row : rows) keyWidth = std::max(keyWidth, row.first.size());
-    const int kw = static_cast<int>(keyWidth);
-
-    std::cout << title << '\n';
-    std::cout << "  " << std::right << std::setw(3) << "#"
-              << "  " << std::left << std::setw(kw) << keyHeader
-              << "  " << std::right << std::setw(9) << "Requests"
-              << "  " << std::setw(6) << "Share" << '\n';
-    std::cout << "  " << std::string(3 + 2 + keyWidth + 2 + 9 + 2 + 6, '-') << '\n';
-
-    std::cout << std::fixed << std::setprecision(1);
-    int rank = 1;
-    for (const auto& [key, count] : rows) {
-        const double pct = 100.0 * static_cast<double>(count) / static_cast<double>(total);
-        std::cout << "  " << std::right << std::setw(3) << rank++
-                  << "  " << std::left << std::setw(kw) << key
-                  << "  " << std::right << std::setw(9) << count
-                  << "  " << std::setw(5) << pct << "%\n";
-    }
-    std::cout << '\n';
-}
-
-void printHourly(const std::array<std::size_t, 24>& hourly) {
-    const std::size_t peak = *std::max_element(hourly.begin(), hourly.end());
-    if (peak == 0) return;
-
-    const std::size_t maxBar = 40;
-    std::cout << "Traffic by hour\n";
-    for (std::size_t h = 0; h < hourly.size(); ++h) {
-        std::size_t len = hourly[h] * maxBar / peak;
-        if (hourly[h] > 0 && len == 0) len = 1;
-
-        std::cout << "  " << std::setfill('0') << std::right << std::setw(2) << h
-                  << std::setfill(' ') << ":00 | " << std::string(len, '#')
-                  << ' ' << hourly[h] << '\n';
-    }
-    std::cout << '\n';
-}
-
-std::string formatEpoch(std::int64_t epoch, int offsetSeconds) {
-    std::int64_t t = epoch + offsetSeconds;
-    std::int64_t days = t / 86400;
-    std::int64_t secs = t % 86400;
-    if (secs < 0) { secs += 86400; --days; }
-
-    days += 719468;
-    const std::int64_t era = (days >= 0 ? days : days - 146096) / 146097;
-    const unsigned doe = static_cast<unsigned>(days - era * 146097);
-    const unsigned yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
-    const std::int64_t y = static_cast<std::int64_t>(yoe) + era * 400;
-    const unsigned doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-    const unsigned mp = (5 * doy + 2) / 153;
-    const unsigned d = doy - (153 * mp + 2) / 5 + 1;
-    const unsigned m = mp < 10 ? mp + 3 : mp - 9;
-
-    std::ostringstream out;
-    out << (y + (m <= 2)) << '-' << std::setfill('0') << std::setw(2) << m << '-'
-        << std::setw(2) << d << ' ' << std::setw(2) << secs / 3600 << ':'
-        << std::setw(2) << (secs % 3600) / 60 << ':' << std::setw(2) << secs % 60;
-    return out.str();
-}
-
-void printAlerts(const std::vector<loglens::Alert>& alerts, std::size_t threshold) {
-    std::cout << "Anomaly detection (more than " << threshold << " requests in 60s)\n";
-    if (alerts.empty()) {
-        std::cout << "  none found\n\n";
-        return;
-    }
-    for (const auto& a : alerts) {
-        std::cout << "  ! " << a.ip << "  peak " << a.peakRequests
-                  << " requests/60s, first flagged at "
-                  << formatEpoch(a.firstEpoch, 5 * 3600 + 30 * 60) << " (+0530)\n";
-    }
-    std::cout << '\n';
-}
-
-// Does this entry pass the user's filters?
 bool matches(const loglens::LogEntry& e, const loglens::Options& o) {
     if (o.status && e.status != *o.status) return false;
     if (o.ip && e.ip != *o.ip) return false;
@@ -150,35 +53,29 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
-    std::cout << "=== LogLens Report ===\n";
-    std::cout << "Total lines : " << result.totalLines << '\n';
-    std::cout << "Parsed      : " << result.parsed << '\n';
-    std::cout << "Malformed   : " << result.malformed << '\n';
-    std::cout << "Matched     : " << matched << "  (after filters)\n";
+    const loglens::ReportData data{result, analyzer, detector, matched, opts.top, opts.threshold};
 
-    if (matched == 0) {
-        std::cout << "\nNo requests matched your filters.\n";
-        return 0;
+    // Always print to the console
+    loglens::writeTextReport(std::cout, data);
+
+    // Optionally save to files
+    if (!opts.outPath.empty()) {
+        std::ofstream file(opts.outPath);
+        if (!file) {
+            std::cerr << "Error: could not write '" << opts.outPath << "'\n";
+            return 1;
+        }
+        loglens::writeTextReport(file, data);
+        std::cout << "\nText report saved to " << opts.outPath << '\n';
     }
-
-    std::cout << "Bytes served: " << formatBytes(analyzer.totalBytes()) << "\n\n";
-
-    std::map<int, std::size_t> sorted(analyzer.statusCounts().begin(),
-                                      analyzer.statusCounts().end());
-    std::cout << "Status codes\n";
-    std::cout << std::fixed << std::setprecision(1);
-    for (const auto& [status, count] : sorted) {
-        const double pct = 100.0 * static_cast<double>(count) / static_cast<double>(matched);
-        std::cout << "  " << status << "  " << std::right << std::setw(8) << count
-                  << "  " << std::setw(5) << pct << "%\n";
+    if (!opts.csvPath.empty()) {
+        std::ofstream file(opts.csvPath);
+        if (!file) {
+            std::cerr << "Error: could not write '" << opts.csvPath << "'\n";
+            return 1;
+        }
+        loglens::writeCsvReport(file, data);
+        std::cout << "CSV report saved to " << opts.csvPath << '\n';
     }
-    std::cout << '\n';
-
-    printTop("Top IPs", "IP", analyzer.topIps(opts.top), matched);
-    printTop("Top URLs", "URL", analyzer.topUrls(opts.top), matched);
-    printHourly(analyzer.hourly());
-    printAlerts(detector.alerts(), opts.threshold);
-
-    std::cout << "Unique IPs  : " << analyzer.ipCounts().size() << '\n';
     return 0;
 }

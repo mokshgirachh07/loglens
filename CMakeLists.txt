@@ -15,6 +15,7 @@ add_library(loglens_core
   src/Timestamp.cpp
   src/AnomalyDetector.cpp
   src/Options.cpp
+  src/Report.cpp
 )
 target_include_directories(loglens_core PUBLIC include)
 target_compile_options(loglens_core PRIVATE -Wall -Wextra)

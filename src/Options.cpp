@@ -72,6 +72,12 @@ bool parseOptions(int argc, char* argv[], Options& opts, std::string& error) {
                 if (!next(value)) return false;
                 opts.toEpoch = parseDate(value, true);
                 if (!opts.toEpoch) { error = "bad date for --to (use YYYY-MM-DD)"; return false; }
+            } else if (arg == "--out") {
+                if (!next(value)) return false;
+                opts.outPath = value;
+            } else if (arg == "--csv") {
+                if (!next(value)) return false;
+                opts.csvPath = value;
             } else if (!arg.empty() && arg[0] == '-') {
                 error = "unknown option " + arg;
                 return false;
@@ -105,6 +111,8 @@ void printUsage(const char* program) {
         "  --from DATE      only requests on or after DATE (YYYY-MM-DD)\n"
         "  --to DATE        only requests on or before DATE (YYYY-MM-DD)\n"
         "  --threshold N    anomaly threshold: requests per 60s (default 100)\n"
+        "  --out PATH       write text report to file\n"
+        "  --csv PATH       write CSV report to file\n"
         "  -h, --help       show this help\n";
 }
 
