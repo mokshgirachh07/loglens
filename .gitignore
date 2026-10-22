@@ -1,3 +1,7 @@
 build/
 *.log
 !sample_logs/small.log
+reports/*
+!reports/.gitkeep
+.vscode/
+.idea/

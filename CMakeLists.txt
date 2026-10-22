@@ -22,3 +22,9 @@ target_compile_options(loglens_core PRIVATE -Wall -Wextra)
 
 add_executable(loglens src/main.cpp)
 target_link_libraries(loglens PRIVATE loglens_core)
+
+option(BUILD_TESTS "Build unit tests" OFF)
+if(BUILD_TESTS)
+  enable_testing()
+  add_subdirectory(tests)
+endif()
