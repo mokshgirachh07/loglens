@@ -1,4 +1,5 @@
 #include <fstream>
+#include <iomanip>
 #include <iostream>
 #include <string>
 
@@ -7,6 +8,7 @@
 #include "loglens/Options.h"
 #include "loglens/Reader.h"
 #include "loglens/Report.h"
+#include "loglens/Timer.h"
 
 namespace {
 
@@ -37,12 +39,14 @@ int main(int argc, char* argv[]) {
     loglens::AnomalyDetector detector(opts.threshold, 60);
     std::size_t matched = 0;
 
+    loglens::Timer timer;
     const auto result = loglens::readLog(opts.path, [&](const loglens::LogEntry& e) {
         if (!matches(e, opts)) return;
         ++matched;
         analyzer.add(e);
         detector.add(e);
     });
+    const double elapsed = timer.seconds();
 
     if (!result.opened) {
         std::cerr << "Error: could not open '" << opts.path << "'\n";
@@ -77,5 +81,10 @@ int main(int argc, char* argv[]) {
         loglens::writeCsvReport(file, data);
         std::cout << "CSV report saved to " << opts.csvPath << '\n';
     }
+
+    // Timing goes to cerr so it never ends up inside saved reports
+    std::cerr << std::fixed << std::setprecision(2) << "\nProcessed " << result.totalLines
+              << " lines in " << elapsed << " s ("
+              << static_cast<double>(result.totalLines) / elapsed / 1e6 << " M lines/s)\n";
     return 0;
 }
