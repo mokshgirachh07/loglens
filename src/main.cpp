@@ -5,14 +5,15 @@
 #include <map>
 #include <sstream>
 #include <string>
+#include <vector>
 
 #include "loglens/Analyzer.h"
-#include "loglens/Reader.h"
 #include "loglens/AnomalyDetector.h"
+#include "loglens/Options.h"
+#include "loglens/Reader.h"
 
 namespace {
 
-// 2'516'000'000 -> "2.34 GB"
 std::string formatBytes(std::size_t bytes) {
     const char* units[] = {"B", "KB", "MB", "GB", "TB"};
     double value = static_cast<double>(bytes);
@@ -28,7 +29,6 @@ std::string formatBytes(std::size_t bytes) {
 
 void printTop(const std::string& title, const std::string& keyHeader,
               const loglens::RankedList& rows, std::size_t total) {
-    // Make the key column as wide as the longest value
     std::size_t keyWidth = keyHeader.size();
     for (const auto& row : rows) keyWidth = std::max(keyWidth, row.first.size());
     const int kw = static_cast<int>(keyWidth);
@@ -60,7 +60,7 @@ void printHourly(const std::array<std::size_t, 24>& hourly) {
     std::cout << "Traffic by hour\n";
     for (std::size_t h = 0; h < hourly.size(); ++h) {
         std::size_t len = hourly[h] * maxBar / peak;
-        if (hourly[h] > 0 && len == 0) len = 1;  // never hide non-empty hours
+        if (hourly[h] > 0 && len == 0) len = 1;
 
         std::cout << "  " << std::setfill('0') << std::right << std::setw(2) << h
                   << std::setfill(' ') << ":00 | " << std::string(len, '#')
@@ -68,6 +68,7 @@ void printHourly(const std::array<std::size_t, 24>& hourly) {
     }
     std::cout << '\n';
 }
+
 std::string formatEpoch(std::int64_t epoch, int offsetSeconds) {
     std::int64_t t = epoch + offsetSeconds;
     std::int64_t days = t / 86400;
@@ -105,24 +106,43 @@ void printAlerts(const std::vector<loglens::Alert>& alerts, std::size_t threshol
     std::cout << '\n';
 }
 
+// Does this entry pass the user's filters?
+bool matches(const loglens::LogEntry& e, const loglens::Options& o) {
+    if (o.status && e.status != *o.status) return false;
+    if (o.ip && e.ip != *o.ip) return false;
+    if (o.fromEpoch && e.epoch < *o.fromEpoch) return false;
+    if (o.toEpoch && e.epoch > *o.toEpoch) return false;
+    return true;
+}
+
 }  // namespace
 
 int main(int argc, char* argv[]) {
-    if (argc < 2) {
-        std::cerr << "Usage: " << argv[0] << " <logfile>\n";
+    loglens::Options opts;
+    std::string error;
+    if (!loglens::parseOptions(argc, argv, opts, error)) {
+        std::cerr << "Error: " << error << "\n\n";
+        loglens::printUsage(argv[0]);
         return 1;
     }
+    if (opts.help) {
+        loglens::printUsage(argv[0]);
+        return 0;
+    }
 
-    const std::size_t threshold = 100;
     loglens::Analyzer analyzer;
-    loglens::AnomalyDetector detector(threshold, 60);
-    const auto result = loglens::readLog(argv[1], [&](const loglens::LogEntry& e) {
+    loglens::AnomalyDetector detector(opts.threshold, 60);
+    std::size_t matched = 0;
+
+    const auto result = loglens::readLog(opts.path, [&](const loglens::LogEntry& e) {
+        if (!matches(e, opts)) return;
+        ++matched;
         analyzer.add(e);
         detector.add(e);
     });
 
     if (!result.opened) {
-        std::cerr << "Error: could not open '" << argv[1] << "'\n";
+        std::cerr << "Error: could not open '" << opts.path << "'\n";
         return 1;
     }
     if (result.parsed == 0) {
@@ -134,24 +154,30 @@ int main(int argc, char* argv[]) {
     std::cout << "Total lines : " << result.totalLines << '\n';
     std::cout << "Parsed      : " << result.parsed << '\n';
     std::cout << "Malformed   : " << result.malformed << '\n';
+    std::cout << "Matched     : " << matched << "  (after filters)\n";
+
+    if (matched == 0) {
+        std::cout << "\nNo requests matched your filters.\n";
+        return 0;
+    }
+
     std::cout << "Bytes served: " << formatBytes(analyzer.totalBytes()) << "\n\n";
 
-    // Status codes (sorted by code)
     std::map<int, std::size_t> sorted(analyzer.statusCounts().begin(),
                                       analyzer.statusCounts().end());
     std::cout << "Status codes\n";
     std::cout << std::fixed << std::setprecision(1);
     for (const auto& [status, count] : sorted) {
-        const double pct = 100.0 * static_cast<double>(count) / static_cast<double>(result.parsed);
+        const double pct = 100.0 * static_cast<double>(count) / static_cast<double>(matched);
         std::cout << "  " << status << "  " << std::right << std::setw(8) << count
                   << "  " << std::setw(5) << pct << "%\n";
     }
     std::cout << '\n';
 
-    printTop("Top 10 IPs", "IP", analyzer.topIps(10), result.parsed);
-    printTop("Top 10 URLs", "URL", analyzer.topUrls(10), result.parsed);
+    printTop("Top IPs", "IP", analyzer.topIps(opts.top), matched);
+    printTop("Top URLs", "URL", analyzer.topUrls(opts.top), matched);
     printHourly(analyzer.hourly());
-    printAlerts(detector.alerts(), threshold);
+    printAlerts(detector.alerts(), opts.threshold);
 
     std::cout << "Unique IPs  : " << analyzer.ipCounts().size() << '\n';
     return 0;
